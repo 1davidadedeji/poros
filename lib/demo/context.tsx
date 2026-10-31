@@ -1,11 +1,11 @@
 'use client'
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { mockPatient } from '@/lib/data/mock-patient'
 import { getProcedureByCode } from '@/lib/data/mock-procedures'
 import { getDenialByCode } from '@/lib/data/mock-denials'
-import type { AppealState, DenialState, EstimateResult, PriorAuthState, TimelineEvent } from '@/lib/data/types'
+import type { AppealDraft, AppealState, DenialState, EstimateResult, PriorAuthState, TimelineEvent } from '@/lib/data/types'
 import { calculateEstimate } from './estimate'
 import { addDays, buildJustification, PRIOR_AUTH_WINDOW_DAYS } from './prior-auth'
 import { APPEAL_WINDOW_DAYS, draftAppealLetter } from './appeal'
@@ -19,13 +19,17 @@ interface DemoState {
   priorAuth: PriorAuthState
   denial: DenialState
   appeal: AppealState
+  drafting: boolean
+  clinicalNote: string
   timeline: TimelineEvent[]
+  setClinicalNote: (note: string) => void
   selectProcedure: (code: string) => void
   generateEstimate: () => void
   generatePriorAuthRequest: () => void
   submitPriorAuth: () => void
   simulateDenial: () => void
-  draftAppeal: () => void
+  draftAppeal: () => Promise<void>
+  approveAppeal: (letterText: string) => void
   submitAppeal: () => void
   markAppealWon: () => void
   resetDemo: () => void
@@ -33,7 +37,15 @@ interface DemoState {
 
 const initialPriorAuth: PriorAuthState = { status: 'none', cptCode: null, justification: null, deadline: null }
 const initialDenial: DenialState = { received: false, reasonCode: null, deadlineToAppeal: null }
-const initialAppeal: AppealState = { status: 'none', letterText: null }
+const initialAppeal: AppealState = {
+  status: 'none',
+  letterText: null,
+  source: null,
+  review: null,
+  fallbackReason: null,
+  draftedFromNote: null,
+  approved: false,
+}
 
 const DemoContext = createContext<DemoState | null>(null)
 
@@ -50,9 +62,23 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [denial, setDenial] = useState<DenialState>(initialDenial)
   const [appeal, setAppeal] = useState<AppealState>(initialAppeal)
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
+  const [clinicalNote, setClinicalNoteState] = useState(mockPatient.clinicalNote)
+  const [drafting, setDrafting] = useState(false)
+  // Bumped on reset so a draft that returns afterwards is discarded.
+  const draftRun = useRef(0)
 
   const pushEvent = useCallback((event: Omit<TimelineEvent, 'id' | 'timestamp'>) => {
     setTimeline((prev) => [...prev, { ...event, id: nextEventId(), timestamp: new Date() }])
+  }, [])
+
+  const setClinicalNote = useCallback((note: string) => {
+    setClinicalNoteState(note)
+    // An unsubmitted request follows the note; a submitted one keeps what was sent.
+    setPriorAuth((prev) => {
+      const procedure = prev.cptCode ? getProcedureByCode(prev.cptCode) : undefined
+      if (prev.status !== 'draft' || !procedure) return prev
+      return { ...prev, justification: buildJustification(procedure, mockPatient, note) }
+    })
   }, [])
 
   const selectProcedure = useCallback((code: string) => {
@@ -78,7 +104,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     if (!selectedCptCode) return
     const procedure = getProcedureByCode(selectedCptCode)
     if (!procedure) return
-    const justification = buildJustification(procedure, mockPatient)
+    const justification = buildJustification(procedure, mockPatient, clinicalNote)
     setPriorAuth({ status: 'draft', cptCode: procedure.code, justification, deadline: null })
     pushEvent({
       flow: 'prior-auth',
@@ -86,7 +112,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       description: `Request drafted for ${procedure.code} using the visit's clinical documentation.`,
       status: 'Draft',
     })
-  }, [selectedCptCode, pushEvent])
+  }, [selectedCptCode, clinicalNote, pushEvent])
 
   const submitPriorAuth = useCallback(() => {
     setPriorAuth((prev) => {
@@ -115,29 +141,74 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     })
   }, [pushEvent])
 
-  const draftAppeal = useCallback(() => {
-    if (!selectedCptCode || !denial.reasonCode) return
+  const draftAppeal = useCallback(async () => {
+    if (!selectedCptCode || !denial.reasonCode || drafting || appeal.approved) return
     const procedure = getProcedureByCode(selectedCptCode)
-    if (!procedure) return
-    const letterText = draftAppealLetter(mockPatient, procedure, denial.reasonCode)
-    setAppeal({ status: 'draft', letterText })
+    const reason = getDenialByCode(denial.reasonCode)
+    if (!procedure || !reason) return
+    const run = ++draftRun.current
+    const note = clinicalNote
+    setDrafting(true)
+    let draft: AppealDraft | null = null
+    let fallbackReason: string | null = null
+    try {
+      const response = await fetch('/api/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ denialCode: reason.code, procedureCode: procedure.code, note }),
+        signal: AbortSignal.timeout(35000),
+      })
+      const data = (await response.json().catch(() => ({}))) as { draft?: AppealDraft; error?: string }
+      if (response.ok && data.draft) draft = data.draft
+      else fallbackReason = data.error ?? 'AI drafting is temporarily unavailable.'
+    } catch {
+      fallbackReason = 'AI drafting did not respond in time.'
+    }
+    if (run !== draftRun.current) return
+    setDrafting(false)
+    setAppeal({
+      status: 'draft',
+      letterText: draft ? draft.letterText : draftAppealLetter(mockPatient, procedure, reason.code),
+      source: draft ? 'ai' : 'template',
+      review: draft,
+      fallbackReason,
+      draftedFromNote: note,
+      approved: false,
+    })
     pushEvent({
       flow: 'appeal',
-      title: 'Appeal letter drafted',
-      description: `Appeal drafted citing ${getDenialByCode(denial.reasonCode)?.guideline.source}.`,
-      status: 'Draft',
+      title: draft ? 'Appeal letter drafted from the note' : 'Appeal letter drafted from template',
+      description: draft
+        ? `AI draft citing ${reason.guideline.source}: ${draft.criteriaMet.length} criteria supported by the note, ${draft.criteriaNotSupported.length} not supported. Awaiting staff review.`
+        : `Template letter citing ${reason.guideline.source}. ${fallbackReason} Awaiting staff review.`,
+      status: 'Needs review',
     })
-  }, [selectedCptCode, denial.reasonCode, pushEvent])
+  }, [selectedCptCode, denial.reasonCode, drafting, appeal.approved, clinicalNote, pushEvent])
+
+  const approveAppeal = useCallback(
+    (letterText: string) => {
+      if (appeal.status !== 'draft' || appeal.approved || !letterText.trim()) return
+      setAppeal((prev) => ({ ...prev, letterText: letterText.trim(), approved: true }))
+      pushEvent({
+        flow: 'appeal',
+        title: 'Appeal letter approved',
+        description: 'Staff reviewed the letter against the clinical note and matched guideline.',
+        status: 'Approved',
+      })
+    },
+    [appeal.status, appeal.approved, pushEvent],
+  )
 
   const submitAppeal = useCallback(() => {
-    setAppeal((prev) => (prev.status === 'draft' ? { ...prev, status: 'submitted' } : prev))
+    if (appeal.status !== 'draft' || !appeal.approved) return
+    setAppeal((prev) => ({ ...prev, status: 'submitted' }))
     pushEvent({
       flow: 'appeal',
       title: 'Appeal submitted',
       description: `Appeal sent to ${mockPatient.plan.payerName} before the appeal deadline.`,
       status: 'Submitted',
     })
-  }, [pushEvent])
+  }, [appeal.status, appeal.approved, pushEvent])
 
   const markAppealWon = useCallback(() => {
     setAppeal((prev) => (prev.status === 'submitted' ? { ...prev, status: 'won' } : prev))
@@ -156,6 +227,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     setDenial(initialDenial)
     setAppeal(initialAppeal)
     setTimeline([])
+    setClinicalNoteState(mockPatient.clinicalNote)
+    setDrafting(false)
+    draftRun.current += 1
   }, [])
 
   const value = useMemo<DemoState>(
@@ -166,13 +240,17 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       priorAuth,
       denial,
       appeal,
+      drafting,
+      clinicalNote,
       timeline,
+      setClinicalNote,
       selectProcedure,
       generateEstimate,
       generatePriorAuthRequest,
       submitPriorAuth,
       simulateDenial,
       draftAppeal,
+      approveAppeal,
       submitAppeal,
       markAppealWon,
       resetDemo,
@@ -183,13 +261,17 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       priorAuth,
       denial,
       appeal,
+      drafting,
+      clinicalNote,
       timeline,
+      setClinicalNote,
       selectProcedure,
       generateEstimate,
       generatePriorAuthRequest,
       submitPriorAuth,
       simulateDenial,
       draftAppeal,
+      approveAppeal,
       submitAppeal,
       markAppealWon,
       resetDemo,

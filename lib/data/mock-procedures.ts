@@ -1,8 +1,5 @@
 import type { CptCode } from './types'
 
-const kneeClinicalNote =
-  '46-year-old female presents with 8 weeks of right knee pain and intermittent locking following a twisting injury sustained while gardening. Failed conservative management including NSAIDs and one corticosteroid injection (CPT 20610, administered 6 weeks prior) with minimal relief; completed a 4-week course of physical therapy (CPT 97110) without resolution of symptoms. Exam notable for joint-line tenderness and a positive McMurray test, no effusion. Plan: MRI right knee without contrast to evaluate for meniscal tear; proceed to arthroscopic partial meniscectomy if a surgical lesion is confirmed and symptoms persist despite completed conservative treatment.'
-
 export const mockProcedures: CptCode[] = [
   {
     code: '99213',
@@ -31,7 +28,6 @@ export const mockProcedures: CptCode[] = [
     requiresPriorAuth: true,
     allowedAmount: 950,
     isCopayBased: false,
-    clinicalNote: kneeClinicalNote,
   },
   {
     code: '29881',
@@ -39,7 +35,6 @@ export const mockProcedures: CptCode[] = [
     requiresPriorAuth: true,
     allowedAmount: 3200,
     isCopayBased: false,
-    clinicalNote: kneeClinicalNote,
   },
 ]
 

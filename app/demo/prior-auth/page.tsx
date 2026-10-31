@@ -1,3 +1,4 @@
+import { ClinicalNoteEditor } from '@/components/demo/clinical-note-editor'
 import { PriorAuthRequest } from '@/components/demo/prior-auth/prior-auth-request'
 import { RouteFade } from '@/components/demo/route-fade'
 
@@ -13,6 +14,7 @@ export default function PriorAuthPage() {
           Poros reads the visit documentation, drafts the request, and keeps the authorization moving.
         </p>
       </div>
+      <ClinicalNoteEditor description="The prior auth request uses this note as its clinical justification until it’s submitted." />
       <PriorAuthRequest />
     </RouteFade>
   )

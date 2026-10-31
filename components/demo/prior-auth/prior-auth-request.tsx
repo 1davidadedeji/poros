@@ -13,8 +13,16 @@ import { DeadlineCountdown } from './deadline-countdown'
 const STEPS = ['Draft', 'Submitted', 'Decision']
 
 export function PriorAuthRequest() {
-  const { selectedCptCode, patient, priorAuth, denial, generatePriorAuthRequest, submitPriorAuth, simulateDenial } =
-    useDemoState()
+  const {
+    selectedCptCode,
+    patient,
+    clinicalNote,
+    priorAuth,
+    denial,
+    generatePriorAuthRequest,
+    submitPriorAuth,
+    simulateDenial,
+  } = useDemoState()
 
   if (!selectedCptCode) {
     return (
@@ -64,10 +72,10 @@ export function PriorAuthRequest() {
 
         <div>
           <p className="text-[9px] font-semibold tracking-[.14em] text-muted-foreground uppercase">
-            Clinical justification
+            Clinical justification{priorAuth.status !== 'none' && priorAuth.status !== 'draft' && ' · as submitted'}
           </p>
-          <p className="mt-1 rounded-md border border-border bg-muted/50 p-3 text-sm leading-relaxed text-foreground">
-            {priorAuth.justification ?? procedure.clinicalNote}
+          <p className="mt-1 rounded-md border border-border bg-muted/50 p-3 text-sm leading-relaxed whitespace-pre-wrap text-foreground">
+            {priorAuth.justification ?? (clinicalNote.trim() || 'Add a clinical note above to support this request.')}
           </p>
         </div>
 

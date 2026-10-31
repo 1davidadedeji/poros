@@ -1,5 +1,8 @@
 import type { DenialReason } from './types'
 
+// Meridian Health Alliance and its policies are fictional. Show this label wherever the library appears.
+export const GUIDELINE_LIBRARY_LABEL = 'Illustrative, not real payer policy'
+
 export const mockDenials: DenialReason[] = [
   {
     code: 'CO-50',

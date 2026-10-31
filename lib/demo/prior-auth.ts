@@ -2,9 +2,9 @@ import type { CptCode, Patient } from '@/lib/data/types'
 
 export const PRIOR_AUTH_WINDOW_DAYS = 10
 
-export function buildJustification(procedure: CptCode, patient: Patient): string {
-  if (procedure.clinicalNote) {
-    return procedure.clinicalNote
+export function buildJustification(procedure: CptCode, patient: Patient, note: string): string {
+  if (note.trim()) {
+    return note.trim()
   }
   return `Clinical documentation supports medical necessity of ${procedure.code} (${procedure.description}) for ${patient.name}.`
 }

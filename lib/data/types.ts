@@ -12,6 +12,7 @@ export interface Patient {
   name: string
   dob: string
   plan: InsurancePlan
+  clinicalNote: string
 }
 
 export interface CptCode {
@@ -20,7 +21,6 @@ export interface CptCode {
   requiresPriorAuth: boolean
   allowedAmount: number
   isCopayBased: boolean
-  clinicalNote?: string
 }
 
 export interface GuidelineSnippet {
@@ -61,9 +61,32 @@ export interface DenialState {
   deadlineToAppeal: Date | null
 }
 
+export interface CriterionMet {
+  criterion: string
+  quote: string
+}
+
+export interface CriterionGap {
+  criterion: string
+  reason: string
+}
+
+export interface AppealDraft {
+  extractedFacts: string[]
+  criteriaMet: CriterionMet[]
+  criteriaNotSupported: CriterionGap[]
+  letterText: string
+  warnings: string[]
+}
+
 export interface AppealState {
   status: AppealStatus
   letterText: string | null
+  source: 'ai' | 'template' | null
+  review: AppealDraft | null
+  fallbackReason: string | null
+  draftedFromNote: string | null
+  approved: boolean
 }
 
 export type TimelineFlow = 'estimate' | 'prior-auth' | 'appeal' | 'system'
